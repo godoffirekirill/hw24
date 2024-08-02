@@ -7,25 +7,17 @@
 
 import UIKit
 
+
+import UIKit
+
 class PersonsViewController: UIViewController {
     
     // MARK: - Properties
     private var persons: [Person] = []
     private let apiService = ApiService()
     
-    // MARK: - UI Elements
-    private lazy var collectionView: UICollectionView = {
-        let layout = UICollectionViewFlowLayout()
-        layout.scrollDirection = .vertical
-        layout.minimumInteritemSpacing = 10
-        layout.minimumLineSpacing = 20
-        let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
-        collectionView.register(PersonCell.self, forCellWithReuseIdentifier: PersonCell.identifier)
-        collectionView.backgroundColor = .white
-        collectionView.delegate = self
-        collectionView.dataSource = self
-        return collectionView
-    }()
+    private var collectionView: UICollectionView!
+    private var dataSource: UICollectionViewDiffableDataSource<Section, Person>!
     
     private lazy var addButton: UIButton = {
         let button = UIButton(type: .system)
@@ -57,6 +49,7 @@ class PersonsViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         
+        configureCollectionView()
         setupUI()
         loadPersons()
     }
@@ -95,6 +88,40 @@ class PersonsViewController: UIViewController {
         ])
     }
     
+    private func configureCollectionView() {
+        // Define the layout
+        let layout = createCompositionalLayout()
+        
+        // Initialize the collection view
+        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        collectionView.backgroundColor = .white
+        collectionView.register(PersonCell.self, forCellWithReuseIdentifier: PersonCell.identifier)
+        
+        // Configure the diffable data source
+        dataSource = UICollectionViewDiffableDataSource<Section, Person>(collectionView: collectionView) { collectionView, indexPath, person in
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PersonCell.identifier, for: indexPath) as! PersonCell
+            cell.configure(with: person)
+            return cell
+        }
+        
+        collectionView.delegate = self
+    }
+    
+    private func createCompositionalLayout() -> UICollectionViewCompositionalLayout {
+        return UICollectionViewCompositionalLayout { sectionIndex, environment in
+            let itemSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0), heightDimension: .absolute(80))
+            let item = NSCollectionLayoutItem(layoutSize: itemSize)
+            item.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
+            
+            let groupSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0), heightDimension: .absolute(80))
+            let group = NSCollectionLayoutGroup.horizontal(layoutSize: groupSize, subitems: [item])
+            
+            let section = NSCollectionLayoutSection(group: group)
+            section.orthogonalScrollingBehavior = .none
+            return section
+        }
+    }
+    
     // MARK: - Actions
     @objc private func showAddPersonView() {
         let addPersonVC = AddPersonViewController()
@@ -104,7 +131,7 @@ class PersonsViewController: UIViewController {
     
     @objc private func deletePersonTapped() {
         // Delete the first person in the list as an example
-        guard persons.first != nil else { return }
+        guard let firstPerson = persons.first else { return }
         Task {
             do {
                 try await apiService.deletePerson()
@@ -121,13 +148,21 @@ class PersonsViewController: UIViewController {
         
         Task {
             do {
-                self.persons = try await apiService.getAllPerson()
-                collectionView.reloadData()
+                let fetchedPersons = try await apiService.getAllPerson()
+                self.persons = fetchedPersons
+                updateDataSource()
             } catch {
                 showError(error.localizedDescription)
             }
             activityIndicator.stopAnimating()
         }
+    }
+    
+    private func updateDataSource() {
+        var snapshot = NSDiffableDataSourceSnapshot<Section, Person>()
+        snapshot.appendSections([.main])
+        snapshot.appendItems(persons)
+        dataSource.apply(snapshot, animatingDifferences: true)
     }
     
     private func showError(_ message: String) {
@@ -151,20 +186,14 @@ extension PersonsViewController: AddPersonDelegate {
     }
 }
 
+// MARK: - Section Enum
+private extension PersonsViewController {
+    enum Section {
+        case main
+    }
+}
+
 // MARK: - UICollectionViewDataSource & UICollectionViewDelegate
-extension PersonsViewController: UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
-    
-    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return persons.count
-    }
-    
-    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PersonCell.identifier, for: indexPath) as! PersonCell
-        cell.configure(with: persons[indexPath.item])
-        return cell
-    }
-    
-    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        return CGSize(width: collectionView.bounds.width, height: 80)
-    }
+extension PersonsViewController: UICollectionViewDelegate {
+    // Implement any delegate methods if needed
 }
