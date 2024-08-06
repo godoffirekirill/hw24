@@ -7,12 +7,10 @@
 
 import UIKit
 
-
-import UIKit
-
 class PersonsViewController: UIViewController {
     
     // MARK: - Properties
+    
     private var persons: [Person] = []
     private let apiService = ApiService()
     
@@ -45,16 +43,20 @@ class PersonsViewController: UIViewController {
         return indicator
     }()
     
-    // MARK: - Lifecycle
+    // MARK: - View Lifecycle
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         
         configureCollectionView()
         setupUI()
-        loadPersons()
+        Task {
+            await loadPersons()
+        }
     }
     
-    // MARK: - UI Setup
+    // MARK: - Setup
+    
     private func setupUI() {
         title = "Persons"
         view.backgroundColor = .white
@@ -70,18 +72,20 @@ class PersonsViewController: UIViewController {
         activityIndicator.translatesAutoresizingMaskIntoConstraints = false
         
         NSLayoutConstraint.activate([
-            addButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            collectionView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            collectionView.bottomAnchor.constraint(equalTo: addButton.topAnchor, constant: -20),
+            
             addButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            addButton.heightAnchor.constraint(equalToConstant: 44),
+            addButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            addButton.bottomAnchor.constraint(equalTo: deleteButton.topAnchor, constant: -10),
+            addButton.heightAnchor.constraint(equalToConstant: 50),
             
-            deleteButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            deleteButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             deleteButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            deleteButton.heightAnchor.constraint(equalToConstant: 44),
-            
-            collectionView.topAnchor.constraint(equalTo: addButton.bottomAnchor, constant: 16),
-            collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            deleteButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20),
+            deleteButton.heightAnchor.constraint(equalToConstant: 50),
             
             activityIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             activityIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor)
@@ -89,73 +93,45 @@ class PersonsViewController: UIViewController {
     }
     
     private func configureCollectionView() {
-        // Define the layout
-        let layout = createCompositionalLayout()
-        
-        // Initialize the collection view
-        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
-        collectionView.backgroundColor = .white
-        collectionView.register(PersonCell.self, forCellWithReuseIdentifier: PersonCell.identifier)
-        
-        // Configure the diffable data source
-        dataSource = UICollectionViewDiffableDataSource<Section, Person>(collectionView: collectionView) { collectionView, indexPath, person in
-            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PersonCell.identifier, for: indexPath) as! PersonCell
-            cell.configure(with: person)
-            return cell
-        }
-        
-        collectionView.delegate = self
-    }
-    
-    private func createCompositionalLayout() -> UICollectionViewCompositionalLayout {
-        return UICollectionViewCompositionalLayout { sectionIndex, environment in
-            let itemSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0), heightDimension: .absolute(80))
+        let layout = UICollectionViewCompositionalLayout { (sectionIndex, environment) -> NSCollectionLayoutSection? in
+            let itemSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0),
+                                                  heightDimension: .fractionalHeight(1.0))
             let item = NSCollectionLayoutItem(layoutSize: itemSize)
-            item.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
             
-            let groupSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0), heightDimension: .absolute(80))
+            let groupSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0),
+                                                   heightDimension: .absolute(100))
             let group = NSCollectionLayoutGroup.horizontal(layoutSize: groupSize, subitems: [item])
             
             let section = NSCollectionLayoutSection(group: group)
-            section.orthogonalScrollingBehavior = .none
+            section.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
+            section.interGroupSpacing = 10
             return section
         }
-    }
-    
-    // MARK: - Actions
-    @objc private func showAddPersonView() {
-        let addPersonVC = AddPersonViewController()
-        addPersonVC.delegate = self
-        present(addPersonVC, animated: true, completion: nil)
-    }
-    
-    @objc private func deletePersonTapped() {
-        // Delete the first person in the list as an example
-        guard let firstPerson = persons.first else { return }
-        Task {
-            do {
-                try await apiService.deletePerson()
-                await loadPersons()
-            } catch {
-                showError(error.localizedDescription)
-            }
-        }
-    }
-    
-    // MARK: - Helper Functions
-    private func loadPersons() {
-        activityIndicator.startAnimating()
         
-        Task {
-            do {
-                let fetchedPersons = try await apiService.getAllPerson()
-                self.persons = fetchedPersons
-                updateDataSource()
-            } catch {
-                showError(error.localizedDescription)
+        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        collectionView.register(PersonCell.self, forCellWithReuseIdentifier: PersonCell.reuseIdentifier)
+        collectionView.delegate = self
+        
+        dataSource = UICollectionViewDiffableDataSource<Section, Person>(collectionView: collectionView) { collectionView, indexPath, person in
+            guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PersonCell.reuseIdentifier, for: indexPath) as? PersonCell else {
+                fatalError("Unable to dequeue PersonCell")
             }
-            activityIndicator.stopAnimating()
+            cell.configure(with: person)
+            return cell
         }
+    }
+    
+    // MARK: - Data Loading
+    
+    private func loadPersons() async {
+        activityIndicator.startAnimating()
+        do {
+            persons = try await apiService.getAllPersons()
+            updateDataSource()
+        } catch {
+            showError(error.localizedDescription)
+        }
+        activityIndicator.stopAnimating()
     }
     
     private func updateDataSource() {
@@ -170,9 +146,37 @@ class PersonsViewController: UIViewController {
         alert.addAction(UIAlertAction(title: "OK", style: .default))
         present(alert, animated: true)
     }
-}
+    
+    // MARK: - Actions
+    
+    @objc private func showAddPersonView() {
+        let addPersonVC = AddPersonViewController()
+        addPersonVC.delegate = self
+        navigationController?.pushViewController(addPersonVC, animated: true)
+    }
+    
 
-// MARK: - AddPersonDelegate
+    @objc private func deletePersonTapped() {
+        // Delete the first person in the list as an example
+        guard let firstPerson = persons.first else { return }
+        Task {
+            do {
+                try await apiService.deletePerson()
+                await loadPersons()
+            } catch {
+                showError(error.localizedDescription)
+            }
+        }
+    }
+}
+    
+
+// MARK: - Collection View Delegate
+
+extension PersonsViewController: UICollectionViewDelegate {}
+
+// MARK: - Add Person Delegate
+
 extension PersonsViewController: AddPersonDelegate {
     func didAddPerson(firstName: String, lastName: String, email: String) {
         Task {
@@ -187,13 +191,7 @@ extension PersonsViewController: AddPersonDelegate {
 }
 
 // MARK: - Section Enum
-private extension PersonsViewController {
-    enum Section {
-        case main
-    }
-}
 
-// MARK: - UICollectionViewDataSource & UICollectionViewDelegate
-extension PersonsViewController: UICollectionViewDelegate {
-    // Implement any delegate methods if needed
+private enum Section {
+    case main
 }
